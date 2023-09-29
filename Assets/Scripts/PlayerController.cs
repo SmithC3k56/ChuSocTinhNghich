@@ -1,7 +1,5 @@
 using System;
 using System.Collections;
-using System.Linq;
-using DefaultNamespace;
 using Player;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -43,11 +41,12 @@ public class PlayerController : MonoBehaviour
 
     [SerializeField] private AudioSource jumpSoundEffect;
 
-
+    [SerializeField] private Transform groundCheck;
     [SerializeField] private float forceMagnitude = 20.0f; // Magnitude của lực
 
     private MovementState state = MovementState.idle;
-
+    private bool isHurt = false;
+    private bool isFacingRight = true;
     // Start is called before the first frame update
     private void Start()
     {
@@ -65,18 +64,42 @@ public class PlayerController : MonoBehaviour
     // Update is called once per frame
     private void Update()
     {
-        dirX = Input.GetAxisRaw("Horizontal");
-
-        rb.velocity = new Vector2(dirX * moveSpeed, rb.velocity.y);
-
-
-        if (Input.GetKey("space") && IsGrounded())
+        if (isDashing)
         {
-            // jumpSoundEffect.Play();
+            return;
+        }
+
+      
+        dirX = Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ? 
+            Input.GetAxisRaw("Horizontal") : 0f;
+     
+        if (Input.GetKeyDown("space") && IsGrounded())
+        {
             rb.velocity = new Vector2(rb.velocity.x, jumpForce);
         }
 
+        if (Input.GetKeyUp("space") && rb.velocity.y > 0f)
+        {
+            rb.velocity = new Vector2(rb.velocity.x, rb.velocity.y * 0.5f);
+        }
+
+        if (Input.GetKeyDown(KeyCode.LeftShift) && canDash)
+        {
+            StartCoroutine(Dash());
+        }
+        
         UpdateAnimationState();
+        Flip();
+    }
+
+    private void FixedUpdate()
+    {
+        if (isDashing)
+        {
+            return;
+        }
+
+        rb.velocity = new Vector2(dirX * moveSpeed, rb.velocity.y);
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -85,25 +108,26 @@ public class PlayerController : MonoBehaviour
         {
             if (totalHearts > 0)
             {
-                
+                isHurt = true;
                 Hearts[totalHearts - 1].SetActive(false);
                 totalHearts--;
             }
             else
             {
-                SceneManager.LoadScene("Lv1");
+                SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
             }
-
-            anim.SetInteger("state", (int)MovementState.hurting);
+           
             Apply45DegreeForce();
+            
         }
         else if (other.gameObject.CompareTag("End"))
         {
-            SceneManager.LoadScene("Lv1");
+            int currentSceneIndex = SceneManager.GetActiveScene().buildIndex;
+            int nextSceneIndex = (currentSceneIndex + 1) % SceneManager.sceneCountInBuildSettings;
+            SceneManager.LoadScene(nextSceneIndex);
         }
         else if (other.gameObject.CompareTag("item"))
         {
-            Debug.Log("item");
             StartCoroutine(DestroyWithDelay(other.gameObject));
             if (totalHearts < 3)
             {
@@ -128,51 +152,82 @@ public class PlayerController : MonoBehaviour
 
     void Apply45DegreeForce()
     {
-        // Tính vector lực với góc 45 độ
-        Vector2 forceDirection = new Vector2(3.0f, 1f).normalized; // Vector đơn vị 45 độ
+        Vector2 forceDirection = new Vector2(3.0f, 1f).normalized;
         Vector2 force = forceDirection * forceMagnitude;
-
-
-        // Thêm lực vào đối tượng
-        rb.AddForce(force, ForceMode2D.Impulse); // Sử dụng ForceMode2D.Impulse để tạo ra lực ngắn hạn
+        
+        rb.AddForce(force, ForceMode2D.Impulse);
     }
 
+   
+    
     private void UpdateAnimationState()
     {
-        if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
+        anim.SetFloat("Blend", float.Parse(PlayerPrefs.GetString("TypeChar")));
+    
+        if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift))
         {
             state = MovementState.crouching;
         }
-
-        if (dirX > 0f)
+        else if ((Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.RightArrow)) && IsGrounded())
         {
             state = MovementState.running;
-            sprite.flipX = false;
         }
-        else if (dirX < 0f)
-        {
-            state = MovementState.running;
-            sprite.flipX = true;
-        }
-        else if (rb.velocity.y > .1f)
+        else if (rb.velocity.y > 0.1f && !IsGrounded())
         {
             state = MovementState.jumping;
         }
-        else if (rb.velocity.y < -.1f)
+        else if (rb.velocity.y < -0.1f &&! IsGrounded())
         {
             state = MovementState.falling;
         }
-        else
+        else if (IsGrounded() && dirX == 0)
         {
             state = MovementState.idle;
         }
+        else if (isHurt)
+        {
+            state = MovementState.hurting;
+            isHurt = false;
+        }
 
         anim.SetInteger("state", (int)state);
-        anim.SetFloat("Blend", float.Parse(PlayerPrefs.GetString("TypeChar")));
     }
+    private void Flip()
+    {
+        if (isFacingRight && dirX < 0f || !isFacingRight && dirX > 0f)
+        {
+            Vector3 localScale = transform.localScale;
+            isFacingRight = !isFacingRight;
+            localScale.x *= -1f;
+            transform.localScale = localScale;
+        }
+    }
+    private bool canDash = true;
+    private bool isDashing;
+    private float dashingPower = 24f;
+    private float dashingTime = 0.2f;
+    private float dashingCooldown = 1f;
+    [SerializeField] private TrailRenderer tr;
 
+    private IEnumerator Dash()
+    {
+        canDash = false;
+        isDashing = true;
+        float originalGravity = rb.gravityScale;
+        rb.gravityScale = 0f;
+        rb.velocity = new Vector2(transform.localScale.x * dashingPower, 0f);
+        tr.emitting = true;
+        yield return new WaitForSeconds(dashingTime);
+        tr.emitting = false;
+        rb.gravityScale = originalGravity;
+        isDashing = false;
+        yield return new WaitForSeconds(dashingCooldown);
+        canDash = true;
+    }
     private bool IsGrounded()
     {
-        return Physics2D.BoxCast(_footColl.bounds.center, _footColl.bounds.size, 0, Vector2.down, 0.1f, jumpableGround);
+        // return Physics2D.BoxCast(_footColl.bounds.center, _footColl.bounds.size, 0, Vector2.down, 0.1f, jumpableGround);
+        return Physics2D.OverlapCircle(groundCheck.position, 0.2f, jumpableGround);
+
     }
 }

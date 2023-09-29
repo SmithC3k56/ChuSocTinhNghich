@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using DefaultNamespace;
 using Player;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -23,20 +22,22 @@ public class GameManager : MonoBehaviour
         _audioSource.volume = PlayerPrefs.GetFloat("Volume");
         coin = PlayerPrefs.GetFloat("Coin");
         CoinLb.text = coin.ToString();
-        Map.SetActive(true);
+      OpenMap();
     }
 
 
     public void CloseMap()
     {
         Map.SetActive(false);
+        Time.timeScale = 1f;
+    }
+
+    public void OpenMap()
+    {
+        Map.SetActive(true);
+        Time.timeScale = 0f;
     }
     
-    public void OnValueChanged(float value)
-    {
-        _audioSource.volume = value;
-        PlayerPrefs.SetFloat("Volume", _audioSource.volume);
-    }
 
     public void onExitGame()
     {
